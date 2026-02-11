@@ -20,20 +20,6 @@ body {
     border-radius: 0 !important;
 }
 
-/* CRT Scanline Effect */
-body::before {
-    content: " ";
-    display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 255, 0, 0.06));
-    z-index: 1000;
-    background-size: 100% 2px, 3px 100%;
-    pointer-events: none;
-}
 
 /* Header & Typography */
 h1,
@@ -123,35 +109,4 @@ select:focus {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--hacker-green);
-}
-
-/* Animations */
-@keyframes flicker {
-    0% {
-        opacity: 0.97;
-    }
-
-    5% {
-        opacity: 0.95;
-    }
-
-    10% {
-        opacity: 0.9;
-    }
-
-    15% {
-        opacity: 0.95;
-    }
-
-    20% {
-        opacity: 0.98;
-    }
-
-    100% {
-        opacity: 1;
-    }
-}
-
-body {
-    animation: flicker 0.1s infinite;
 }
