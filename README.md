@@ -1,6 +1,6 @@
-# Epstein Library Video Vault
+# JEVV (Jeffery Epstein Video Vault)
 
-A premium web application to browse, search, and view video recordings from the DOJ Epstein Library.
+A high-performance, containerized digital archive for exploring verified surveillance recordings from the DOJ JEVV collection.
 
 ## Features
 - **Instant Search**: Local searching of thousands of archive records.
