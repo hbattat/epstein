@@ -1,0 +1,12 @@
+# Sensitive data
+cookies.txt
+
+# Environment
+.env
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Optional: Large binary data
+# data/thumbnails/
