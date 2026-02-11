@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // State
     let allVideos = [];
     let filteredVideos = [];
     let shuffledVideos = [];
@@ -37,7 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentVideoUrl = null;
     let reCaptchaWidgetId = null;
     let isRandomized = false;
-    const PAGE_SIZE = 20;
+    let selectedTags = new Set();
+    const PAGE_SIZE = 24;
 
     // Load thumbnail mapping
     // Load static data
@@ -146,10 +148,43 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function renderActiveTags() {
+        activeTagsContainer.innerHTML = '';
+        if (selectedTags.size === 0) {
+            activeTagsContainer.classList.add('hidden');
+            return;
+        }
+
+        activeTagsContainer.classList.remove('hidden');
+        selectedTags.forEach(tag => {
+            const chip = document.createElement('div');
+            chip.className = 'flex items-center gap-2 bg-green-500/20 text-green-400 px-3 py-1.5 rounded-none border border-green-500/30 text-xs font-mono uppercase tracking-wide';
+            chip.innerHTML = `
+                <span>#${tag}</span>
+                <button class="hover:text-white transition-colors" onclick="removeTagFilter('${tag}')">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            `;
+            activeTagsContainer.appendChild(chip);
+        });
+    }
+
+    window.removeTagFilter = function (tag) {
+        selectedTags.delete(tag);
+        applyFilters();
+    };
+
+    window.addTagFilter = function (tag) {
+        selectedTags.add(tag);
+        applyFilters();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     function applyFilters() {
+        const query = searchInput.value.trim().toLowerCase();
         const dataset = datasetFilter.value;
         const format = formatFilter.value;
-        const tag = tagFilter.value;
+        // Tag is now handled by selectedTags Set
 
         const sourcePool = isRandomized ? shuffledVideos : allVideos;
 
@@ -172,25 +207,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!url.endsWith(format)) return false;
             }
 
-            // 4. Tag Filter
-            if (tag !== 'all') {
-                if (!v.tags || !v.tags.includes(tag)) return false;
+            // 4. Multi-Tag Filter (AND Logic)
+            if (selectedTags.size > 0) {
+                if (!v.tags) return false;
+                for (let tag of selectedTags) {
+                    if (!v.tags.includes(tag)) return false;
+                }
             }
 
             return true;
         });
 
+        renderActiveTags();
         renderInitialResults();
 
         // Analytics: Track searches and filters
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
-            if (query || dataset !== 'all' || format !== 'all' || tag !== 'all') {
+            if (query || dataset !== 'all' || format !== 'all' || selectedTags.size > 0) {
                 trackEvent('vault_filter', {
                     search_query: query,
                     filter_dataset: dataset,
                     filter_format: format,
-                    filter_tag: tag,
+                    filter_tags: Array.from(selectedTags).join(','),
                     results_count: filteredVideos.length
                 });
             }
@@ -200,7 +239,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event Listeners
     datasetFilter.addEventListener('change', applyFilters);
     formatFilter.addEventListener('change', applyFilters);
-    tagFilter.addEventListener('change', applyFilters);
+
+    tagFilter.addEventListener('change', () => {
+        const tag = tagFilter.value;
+        if (tag !== 'all') {
+            selectedTags.add(tag);
+            tagFilter.value = 'all'; // Reset dropdown
+            applyFilters();
+        }
+    });
 
     searchInput.addEventListener('input', applyFilters);
 
@@ -401,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     ${video.tags && video.tags.length > 0 ? `
                     <div class="flex flex-wrap gap-2 pt-2 border-t border-white/5 opacity-60 group-hover:opacity-100 transition-opacity">
-                        ${video.tags.map(tag => `<span class="tag-chip hover:bg-green-600 hover:text-black hover:border-green-500 cursor-pointer transition-colors" data-tag="${tag}" onclick="event.stopPropagation(); document.getElementById('tag-filter').value='${tag}'; document.getElementById('tag-filter').dispatchEvent(new Event('change')); window.scrollTo({top: 0, behavior: 'smooth'});">#${tag}</span>`).join('')}
+                        ${video.tags.map(tag => `<span class="tag-chip hover:bg-green-600 hover:text-black hover:border-green-500 cursor-pointer transition-colors" data-tag="${tag}" onclick="event.stopPropagation(); window.addTagFilter('${tag}')">#${tag}</span>`).join('')}
                     </div>` : ''}
                 </div>
             `;
