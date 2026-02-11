@@ -3,10 +3,19 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const zlib = require('zlib');
+const cluster = require('cluster');
+const os = require('os');
 
 const PORT = 3000;
+const numCPUs = os.cpus().length;
 
-const server = http.createServer((req, res) => {
+// In-memory cache for static assets (up to 50MB total for safety)
+const fileCache = new Map();
+const MAX_CACHE_SIZE_MB = 50;
+let currentCacheSize = 0;
+
+function serveRequest(req, res) {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
 
@@ -19,7 +28,6 @@ const server = http.createServer((req, res) => {
             return;
         }
 
-        // Basic URL validation to prevent crashes
         try {
             new URL(targetUrl);
         } catch (e) {
@@ -29,15 +37,11 @@ const server = http.createServer((req, res) => {
             return;
         }
 
-        console.log(`Proxying: ${targetUrl}`);
-
-        const sessionCookies = 'justiceGovAgeVerified=true';
-
         const options = {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': 'https://www.justice.gov/epstein',
-                'Cookie': sessionCookies
+                'Cookie': 'justiceGovAgeVerified=true'
             }
         };
 
@@ -48,13 +52,10 @@ const server = http.createServer((req, res) => {
                 return;
             }
 
-            // Forward headers but add CORS
             const headers = { ...proxyRes.headers };
             headers['Access-Control-Allow-Origin'] = '*';
             headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS';
             headers['Access-Control-Allow-Headers'] = '*';
-
-            // Remove security headers that might block embedding
             delete headers['content-security-policy'];
             delete headers['x-frame-options'];
 
@@ -70,8 +71,6 @@ const server = http.createServer((req, res) => {
 
     // Static file serving
     let filePath = path.join(__dirname, pathname === '/' ? 'index.html' : pathname);
-
-    // Security check to prevent directory traversal
     if (!filePath.startsWith(__dirname)) {
         res.statusCode = 403;
         res.end('Forbidden');
@@ -79,7 +78,6 @@ const server = http.createServer((req, res) => {
     }
 
     const extname = path.extname(filePath);
-    let contentType = 'text/html';
     const mimeTypes = {
         '.html': 'text/html',
         '.js': 'text/javascript',
@@ -90,16 +88,29 @@ const server = http.createServer((req, res) => {
         '.jpeg': 'image/jpeg',
         '.gif': 'image/gif',
         '.svg': 'image/svg+xml',
-        '.wav': 'audio/wav',
-        '.mp4': 'video/mp4',
-        '.woff': 'application/font-woff',
-        '.ttf': 'application/font-ttf',
-        '.eot': 'application/vnd.ms-fontobject',
-        '.otf': 'application/font-otf',
-        '.wasm': 'application/wasm'
+        '.mp4': 'video/mp4'
     };
+    const contentType = mimeTypes[extname] || 'application/octet-stream';
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    const canGzip = acceptEncoding.includes('gzip');
 
-    contentType = mimeTypes[extname] || 'application/octet-stream';
+    // Serve from memory cache if available
+    if (fileCache.has(filePath)) {
+        const { content, gzipContent } = fileCache.get(filePath);
+        const headers = {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600'
+        };
+        if (canGzip && gzipContent) {
+            headers['Content-Encoding'] = 'gzip';
+            res.writeHead(200, headers);
+            res.end(gzipContent);
+        } else {
+            res.writeHead(200, headers);
+            res.end(content);
+        }
+        return;
+    }
 
     fs.readFile(filePath, (error, content) => {
         if (error) {
@@ -111,18 +122,59 @@ const server = http.createServer((req, res) => {
                 res.end('Server error: ' + error.code);
             }
         } else {
-            res.writeHead(200, { 'Content-Type': contentType });
-            res.end(content, 'utf-8');
+            const isCompressible = contentType.includes('text') || contentType.includes('json') || contentType.includes('javascript');
+
+            if (isCompressible) {
+                zlib.gzip(content, (err, compressed) => {
+                    const headers = {
+                        'Content-Type': contentType,
+                        'Cache-Control': 'public, max-age=3600'
+                    };
+
+                    // Update cache
+                    if (currentCacheSize + content.length / 1024 / 1024 < MAX_CACHE_SIZE_MB) {
+                        fileCache.set(filePath, { content, gzipContent: err ? null : compressed });
+                        currentCacheSize += content.length / 1024 / 1024;
+                    }
+
+                    if (!err && canGzip) {
+                        headers['Content-Encoding'] = 'gzip';
+                        res.writeHead(200, headers);
+                        res.end(compressed);
+                    } else {
+                        res.writeHead(200, headers);
+                        res.end(content);
+                    }
+                });
+            } else {
+                if (currentCacheSize + content.length / 1024 / 1024 < MAX_CACHE_SIZE_MB) {
+                    fileCache.set(filePath, { content, gzipContent: null });
+                    currentCacheSize += content.length / 1024 / 1024;
+                }
+                res.writeHead(200, {
+                    'Content-Type': contentType,
+                    'Cache-Control': 'public, max-age=3600'
+                });
+                res.end(content);
+            }
         }
     });
-});
+}
 
-server.listen(PORT, () => {
-    console.log(`
-    🚀 Video Vault Server Running!
-    ------------------------------
-    Local:    http://localhost:${PORT}
-    
-    The server is now proxying DOJ videos to bypass CORS and age-verification blocks.
-    `);
-});
+if (cluster.isMaster) {
+    console.log(`Master ${process.pid} is running`);
+    // Fork workers
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
+    }
+
+    cluster.on('exit', (worker, code, signal) => {
+        console.log(`Worker ${worker.process.pid} died. Spawning replacement...`);
+        cluster.fork();
+    });
+} else {
+    const server = http.createServer(serveRequest);
+    server.listen(PORT, () => {
+        console.log(`Worker ${process.pid} started on port ${PORT}`);
+    });
+}

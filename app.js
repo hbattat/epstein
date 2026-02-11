@@ -31,27 +31,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const PAGE_SIZE = 20;
 
     // Load thumbnail mapping
-    async function loadThumbnails() {
-        try {
-            const response = await fetch('data/thumbnails.json');
-            if (response.ok) {
-                thumbnailMap = await response.json();
-            }
-        } catch (e) {
-            console.warn('Thumbnails not loaded yet');
-        }
-    }
-
     // Load static data
     loadVideoData();
 
     async function loadVideoData() {
-        await loadThumbnails();
-        try {
-            const response = await fetch('data/videos.json');
-            if (!response.ok) throw new Error('Ready to scrape? Please run "node scraper.js" first to generate the video library.');
+        videoGrid.innerHTML = `
+            <div class="col-span-full py-20 text-center space-y-4">
+                <div class="inline-block animate-spin rounded-none h-12 w-12 border-4 border-green-500/30 border-t-green-500"></div>
+                <p class="text-green-500 font-mono tracking-widest uppercase">Initializing Vault Connection...</p>
+            </div>
+        `;
 
-            const data = await response.json();
+        try {
+            const [thumbResponse, videoResponse] = await Promise.all([
+                fetch('data/thumbnails.json').catch(() => ({ ok: false })),
+                fetch('data/videos.json')
+            ]);
+
+            if (thumbResponse.ok) {
+                thumbnailMap = await thumbResponse.json();
+            }
+
+            if (!videoResponse.ok) {
+                throw new Error('Connection failed. Database potentially offline or not initialized.');
+            }
+
+            const data = await videoResponse.json();
             // FILTER: Only show playable videos
             allVideos = data.filter(v => v.playable || (v.url && v.url.startsWith('http')));
 
@@ -63,12 +68,16 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Data load error:', error);
             videoGrid.innerHTML = `
-                <div class="loading">
-                    <p><strong>Library data not found.</strong></p>
-                    <p style="font-size: 0.9rem; margin-top: 1rem; color: var(--text-muted);">
-                        To populate the vault, please run:<br>
-                        <code>node scraper.js</code><br>
-                        in your terminal.
+                <div class="col-span-full py-20 text-center space-y-6">
+                    <div class="text-red-500 font-mono text-xl mb-4">[ERROR: DATA_LOAD_FAILURE]</div>
+                    <p class="text-slate-400 max-w-md mx-auto mb-8">
+                        The connection to the archive vault failed. This may be due to high congestion or an uninitialized library.
+                    </p>
+                    <button onclick="location.reload()" class="bg-black hover:bg-green-900/20 text-green-500 font-mono py-3 px-8 border border-green-500 transition-all uppercase tracking-widest">
+                        Re-initialize Connection
+                    </button>
+                    <p class="text-xs text-slate-600 mt-8 font-mono">
+                        SYSTEM ADVISORY: If error persists, ensure "node scraper.js" has been executed.
                     </p>
                 </div>
             `;
