@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
-    Joe
 
     let allVideos = [];
     let filteredVideos = [];
