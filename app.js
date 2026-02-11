@@ -14,15 +14,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let searchTimeout;
 
-    // GTM Event Tracker
+    // GA4 Event Tracker
     function trackEvent(eventName, eventParams = {}) {
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-            event: eventName,
-            ...eventParams,
-            timestamp: new Date().toISOString()
-        });
+        if (typeof gtag === 'function') {
+            gtag('event', eventName, {
+                ...eventParams,
+                timestamp: new Date().toISOString()
+            });
+        }
     }
+    Joe
 
     let allVideos = [];
     let filteredVideos = [];
@@ -219,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${downloadUrl ? `
                     <div class="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
                         <a href="${proxyDownloadUrl}" download="${actualFilename}" class="flex items-center gap-2 p-2.5 bg-black hover:bg-green-600 text-green-400 hover:text-black rounded-none border border-green-500 transition-all shadow-xl" title="Download Recording" 
-                           onclick="event.stopPropagation(); window.dataLayer && window.dataLayer.push({event: 'vault_video_download', video_title: '${(video.title || 'Untitled').replace(/'/g, "\\'")}', source: 'card'})">
+                           onclick="event.stopPropagation(); typeof gtag === 'function' && gtag('event', 'vault_video_download', {video_title: '${(video.title || 'Untitled').replace(/'/g, "\\'")}', source: 'card'})">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         </a>
                     </div>` : ''}
