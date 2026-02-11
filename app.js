@@ -238,8 +238,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function submitTag() {
+        console.log('Submit tag clicked for video:', currentVideoUrl);
         const tag = tagInput.value.trim();
-        if (!tag) return;
+        if (!tag) {
+            console.warn('Empty tag submission');
+            return;
+        }
 
         if (tag.includes(' ')) {
             showTagFeedback('Single word only', 'text-red-500');
@@ -251,10 +255,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const captchaToken = grecaptcha.getResponse(reCaptchaWidgetId);
-        if (!captchaToken) {
-            showTagFeedback('Please complete reCAPTCHA', 'text-red-400');
-            return;
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        let captchaToken = 'localhost-mock-token';
+
+        if (!isLocal) {
+            captchaToken = grecaptcha.getResponse(reCaptchaWidgetId);
+            if (!captchaToken) {
+                showTagFeedback('Please complete reCAPTCHA', 'text-red-400');
+                return;
+            }
+        } else {
+            console.log('Skipping reCAPTCHA for localhost');
         }
 
         submitTagBtn.disabled = true;
@@ -295,9 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => { tagFeedback.classList.add('hidden'); }, 5000);
     }
 
-    if (submitTagBtn) {
-        submitTagBtn.addEventListener('click', submitTag);
-    }
+    // Tag submission is now handled by event delegation on the modal
 
     function renderVideos(videos, append = false) {
         if (!append) videoGrid.innerHTML = '';
@@ -440,10 +449,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     closeModal.addEventListener('click', closeVideo);
 
+    // Use event delegation for the submit button to ensure it works even if modal is re-processed
     modal.addEventListener('click', (e) => {
         // If they click the backdrop (the modal wrapper itself)
         if (e.target === modal) {
             closeVideo();
+            return;
+        }
+
+        // Handle Submit Tag Button
+        if (e.target.id === 'submit-tag-btn' || e.target.closest('#submit-tag-btn')) {
+            submitTag();
         }
     });
 
