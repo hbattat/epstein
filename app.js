@@ -27,8 +27,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let allVideos = [];
     let filteredVideos = [];
+    let shuffledVideos = [];
     let thumbnailMap = {};
     let displayedCount = 0;
+    let isRandomized = false;
     const PAGE_SIZE = 20;
 
     // Load thumbnail mapping
@@ -126,7 +128,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const dataset = datasetFilter.value;
         const format = formatFilter.value;
 
-        filteredVideos = allVideos.filter(v => {
+        const sourcePool = isRandomized ? shuffledVideos : allVideos;
+
+        filteredVideos = sourcePool.filter(v => {
             // 1. Search Query
             const matchesQuery = !query ||
                 (v.title || '').toLowerCase().includes(query) ||
@@ -184,20 +188,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function openRandomVideo() {
-        if (filteredVideos.length === 0) return;
-        const randomIndex = Math.floor(Math.random() * filteredVideos.length);
-        const video = filteredVideos[randomIndex];
-        openVideo(video);
+    function toggleRandomize() {
+        isRandomized = !isRandomized;
 
-        trackEvent('vault_random_audit', {
-            video_title: video.title,
-            dataset: video.dataset
+        if (isRandomized) {
+            // Fisher-Yates Shuffle
+            shuffledVideos = [...allVideos];
+            for (let i = shuffledVideos.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffledVideos[i], shuffledVideos[j]] = [shuffledVideos[j], shuffledVideos[i]];
+            }
+            randomAuditBtn.classList.add('bg-green-600', 'text-black');
+            randomAuditBtn.classList.remove('bg-black', 'text-green-500');
+            randomAuditBtn.textContent = 'RESTORE';
+        } else {
+            randomAuditBtn.classList.remove('bg-green-600', 'text-black');
+            randomAuditBtn.classList.add('bg-black', 'text-green-500');
+            randomAuditBtn.textContent = 'Randomize';
+        }
+
+        applyFilters();
+
+        trackEvent('vault_randomize_toggle', {
+            state: isRandomized ? 'on' : 'off',
+            total_videos: allVideos.length
         });
     }
 
     if (randomAuditBtn) {
-        randomAuditBtn.addEventListener('click', openRandomVideo);
+        randomAuditBtn.addEventListener('click', toggleRandomize);
     }
 
     function renderVideos(videos, append = false) {
