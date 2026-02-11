@@ -45,6 +45,18 @@ h4 {
     letter-spacing: 2px;
 }
 
+.jevv-title {
+    color: #444;
+    text-shadow: none;
+}
+
+.jevv-title .highlight {
+    color: var(--hacker-green);
+    text-shadow: 0 0 15px var(--hacker-green), 0 0 30px var(--hacker-green);
+    font-size: 1.25em;
+    display: inline-block;
+}
+
 .bg-gradient-to-r {
     background: none !important;
     background-color: transparent !important;
