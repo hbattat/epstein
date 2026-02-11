@@ -189,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function toggleRandomize() {
+        console.log('Toggle randomize clicked. Current state:', isRandomized);
         isRandomized = !isRandomized;
 
         if (isRandomized) {
