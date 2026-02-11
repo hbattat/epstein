@@ -69,6 +69,70 @@ function serveRequest(req, res) {
         return;
     }
 
+    // API: Suggest Tag
+    if (pathname === '/api/suggest-tag' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const { videoUrl, tag, captchaToken } = JSON.parse(body);
+
+                // VALIDATION
+                if (!videoUrl || !tag || !captchaToken) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Missing required fields' }));
+                    return;
+                }
+
+                const cleanTag = tag.trim();
+                if (cleanTag.includes(' ') || cleanTag.length > 20 || cleanTag.length === 0) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid tag. Must be a single word, max 20 characters.' }));
+                    return;
+                }
+
+                const suggestion = {
+                    videoUrl,
+                    tag: cleanTag,
+                    status: 'pending',
+                    timestamp: new Date().toISOString(),
+                    ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress
+                };
+
+                const dataDir = path.join(__dirname, 'data');
+                if (!fs.existsSync(dataDir)) {
+                    fs.mkdirSync(dataDir);
+                }
+                const storagePath = path.join(dataDir, 'tag_suggestions.json');
+
+                fs.readFile(storagePath, 'utf8', (err, data) => {
+                    let suggestions = [];
+                    if (!err && data) {
+                        try {
+                            suggestions = JSON.parse(data);
+                        } catch (e) { suggestions = []; }
+                    }
+
+                    suggestions.push(suggestion);
+
+                    fs.writeFile(storagePath, JSON.stringify(suggestions, null, 2), (err) => {
+                        if (err) {
+                            res.writeHead(500, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: 'Failed to save suggestion' }));
+                        } else {
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ success: true, message: 'Tag suggestion submitted for review' }));
+                        }
+                    });
+                });
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON request' }));
+            }
+        });
+        return;
+    }
+
     // Static file serving
     let filePath = path.join(__dirname, pathname === '/' ? 'index.html' : pathname);
     if (!filePath.startsWith(__dirname)) {

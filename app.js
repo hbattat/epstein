@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadMoreBtn = document.getElementById('load-more-btn');
     const modalDownload = document.getElementById('modal-download');
     const randomAuditBtn = document.getElementById('random-audit-btn');
+    const tagInput = document.getElementById('tag-suggestion-input');
+    const submitTagBtn = document.getElementById('submit-tag-btn');
+    const tagFeedback = document.getElementById('tag-feedback');
 
     let searchTimeout;
 
@@ -30,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let shuffledVideos = [];
     let thumbnailMap = {};
     let displayedCount = 0;
+    let currentVideoUrl = null;
+    let reCaptchaWidgetId = null;
     let isRandomized = false;
     const PAGE_SIZE = 20;
 
@@ -220,6 +225,80 @@ document.addEventListener('DOMContentLoaded', () => {
         randomAuditBtn.addEventListener('click', toggleRandomize);
     }
 
+    // TAG SUGGESTION LOGIC
+    function initReCaptcha() {
+        if (typeof grecaptcha !== 'undefined' && reCaptchaWidgetId === null) {
+            try {
+                reCaptchaWidgetId = grecaptcha.render('captcha-container', {
+                    'sitekey': '6Lc-bGgsAAAAALa8TIQy-fjYNRB0if6288VOAeXR',
+                    'theme': 'dark'
+                });
+            } catch (e) { console.error('reCAPTCHA init error:', e); }
+        }
+    }
+
+    async function submitTag() {
+        const tag = tagInput.value.trim();
+        if (!tag) return;
+
+        if (tag.includes(' ')) {
+            showTagFeedback('Single word only', 'text-red-500');
+            return;
+        }
+
+        if (tag.length > 20) {
+            showTagFeedback('Max 20 characters', 'text-red-500');
+            return;
+        }
+
+        const captchaToken = grecaptcha.getResponse(reCaptchaWidgetId);
+        if (!captchaToken) {
+            showTagFeedback('Please complete reCAPTCHA', 'text-red-400');
+            return;
+        }
+
+        submitTagBtn.disabled = true;
+        submitTagBtn.textContent = 'Submitting...';
+
+        try {
+            const response = await fetch('/api/suggest-tag', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    videoUrl: currentVideoUrl,
+                    tag: tag,
+                    captchaToken: captchaToken
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showTagFeedback(result.message, 'text-green-500');
+                tagInput.value = '';
+                grecaptcha.reset(reCaptchaWidgetId);
+            } else {
+                showTagFeedback(result.error || 'Submission failed', 'text-red-500');
+            }
+        } catch (error) {
+            showTagFeedback('Network error. Try again.', 'text-red-500');
+        } finally {
+            submitTagBtn.disabled = false;
+            submitTagBtn.textContent = 'Submit Tag';
+        }
+    }
+
+    function showTagFeedback(message, colorClass) {
+        tagFeedback.textContent = message;
+        tagFeedback.className = `text-xs font-mono mt-2 ${colorClass}`;
+        tagFeedback.classList.remove('hidden');
+        setTimeout(() => { tagFeedback.classList.add('hidden'); }, 5000);
+    }
+
+    if (submitTagBtn) {
+        submitTagBtn.addEventListener('click', submitTag);
+    }
+
     function renderVideos(videos, append = false) {
         if (!append) videoGrid.innerHTML = '';
 
@@ -321,6 +400,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const proxyUrl = `/proxy?url=${encodeURIComponent(finalUrl)}`;
         mainPlayer.src = proxyUrl;
+        currentVideoUrl = finalUrl;
+
+        // Initialize reCAPTCHA if not already
+        initReCaptcha();
 
         // Setup download button in modal
         if (modalDownload) {
