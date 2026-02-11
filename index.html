@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epstein Library - Video Vault</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            900: '#0f172a',
+                            800: '#1e293b',
+                            700: '#334155',
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-dark-900 text-slate-200 min-h-screen font-sans">
+    <!-- Animated Background -->
+    <div
+        class="fixed inset-0 overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-indigo-950/20 via-slate-950 to-purple-950/20">
+        <div class="background-blobs">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
+        </div>
+    </div>
+
+    <header class="py-12 text-center relative overflow-hidden">
+        <div class="container mx-auto px-4">
+            <h1 class="font-outfit text-5xl md:text-6xl font-bold tracking-tight mb-4">
+                <span
+                    class="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">VideoVault</span>
+            </h1>
+            <p class="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto font-light leading-relaxed">
+                Advanced DOJ Epstein Library Access. High-performance archival exploration and verified media playback.
+            </p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pb-20">
+        <div class="max-w-5xl mx-auto mb-16 space-y-6">
+            <!-- Search & Filter Card -->
+            <div class="bg-black border border-white/10 rounded-none p-6 md:p-8 shadow-2xl">
+                <div class="flex flex-col md:flex-row gap-4 mb-8">
+                    <div class="relative flex-grow">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </div>
+                        <input type="text" id="search-input" placeholder="Search by name, dataset, or filename..."
+                            class="w-full bg-black border border-white/10 rounded-none py-4 pl-12 pr-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all text-lg"
+                            value="">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-6 border-t border-white/5">
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Dataset</label>
+                        <select id="dataset-filter"
+                            class="w-full bg-black border border-white/10 rounded-none py-3 px-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all appearance-none cursor-pointer">
+                            <option value="all">All Datasets</option>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Format</label>
+                        <select id="format-filter"
+                            class="w-full bg-black border border-white/10 rounded-none py-3 px-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all appearance-none cursor-pointer">
+                            <option value="all">All Formats</option>
+                            <option value=".mp4">MP4 Video</option>
+                            <option value=".mov">QuickTime MOV</option>
+                            <option value=".wmv">Windows Media</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="results-info" class="text-center mt-8 text-slate-500 text-sm font-medium tracking-wide">
+                    Ready to explore archives...
+                </div>
+            </div>
+        </div>
+
+        <div id="video-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Videos injected here -->
+            <div class="col-span-full py-20 text-center space-y-4">
+                <div
+                    class="inline-block animate-spin rounded-none h-12 w-12 border-4 border-green-500/30 border-t-green-500">
+                </div>
+                <p class="text-slate-500 font-medium tracking-wide">Loading vault recordings...</p>
+            </div>
+        </div>
+
+        <div id="load-more-container" class="mt-16 text-center" style="display: none;">
+            <button id="load-more-btn"
+                class="bg-black hover:bg-green-900/20 text-green-500 font-semibold py-4 px-12 rounded-none border border-green-500 transition-all transform hover:scale-105 active:scale-95">
+                Load More Recordings
+            </button>
+        </div>
+    </main>
+
+    <!-- Premium Modal -->
+    <div id="video-modal"
+        class="fixed inset-0 z-[100] hidden items-center justify-center p-4 md:p-8 backdrop-blur-3xl bg-black/80 transition-all duration-300 opacity-0">
+        <div class="w-full max-w-6xl bg-black border border-green-500 rounded-none overflow-hidden shadow-2xl relative">
+            <button
+                class="close-modal absolute top-6 right-6 z-10 p-3 bg-black hover:bg-red-500/20 hover:text-red-400 text-white rounded-none transition-all backdrop-blur-md border border-white/10">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+
+            <div class="flex flex-col h-full">
+                <!-- Player Area -->
+                <div class="aspect-video bg-black relative shadow-inner overflow-hidden">
+                    <video id="main-player" controls class="w-full h-full object-contain">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+
+                <!-- Info Area -->
+                <div class="p-8 md:p-10 space-y-4">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <h2 id="modal-title"
+                                class="text-2xl md:text-3xl font-bold font-outfit text-white leading-tight">Video Title
+                            </h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <a id="modal-download" href="#" download
+                                class="flex items-center gap-2 px-6 py-3 bg-black hover:bg-green-900/20 text-green-500 border border-green-500 rounded-none text-sm font-semibold transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                                Download
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="py-12 border-t border-white/5 mt-20">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-slate-600 text-sm font-medium">&copy; 2026 VideoVault • DOJ Archive Explorer</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,145 @@
+/* Hacker Theme: Terminal Aesthetic Overrides */
+:root {
+    --bg-dark: #000000;
+    --hacker-green: #00ff41;
+    --hacker-green-dim: #003b00;
+    --cyber-cyan: #00f3ff;
+    --accent-red: #ff003c;
+    --terminal-font: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--hacker-green);
+    font-family: var(--terminal-font);
+    text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+}
+
+/* Zero Rounding Global Override */
+* {
+    border-radius: 0 !important;
+}
+
+/* CRT Scanline Effect */
+body::before {
+    content: " ";
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 255, 0, 0.06));
+    z-index: 1000;
+    background-size: 100% 2px, 3px 100%;
+    pointer-events: none;
+}
+
+/* Header & Typography */
+h1,
+h2,
+h3,
+h4 {
+    font-family: var(--terminal-font) !important;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.bg-gradient-to-r {
+    background: none !important;
+    background-color: transparent !important;
+    -webkit-text-fill-color: var(--hacker-green) !important;
+    color: var(--hacker-green) !important;
+}
+
+/* Glassmorphism to Technical Borders */
+.backdrop-blur-xl,
+.backdrop-blur-3xl {
+    backdrop-filter: none !important;
+    background: rgba(0, 0, 0, 0.9) !important;
+}
+
+.border-white\/10 {
+    border-color: var(--hacker-green-dim) !important;
+}
+
+/* Inputs & UI Elements */
+input,
+select,
+button {
+    background-color: #050505 !important;
+    border: 1px solid var(--hacker-green) !important;
+    color: var(--hacker-green) !important;
+    font-family: var(--terminal-font) !important;
+}
+
+input:focus,
+select:focus {
+    box-shadow: 0 0 10px var(--hacker-green) !important;
+}
+
+/* Video Cards */
+.group:hover .border-white\/10 {
+    border-color: var(--hacker-green) !important;
+}
+
+/* Custom Checkbox/Badges */
+.bg-indigo-500\/20 {
+    background-color: var(--hacker-green-dim) !important;
+    color: var(--hacker-green) !important;
+    border-color: var(--hacker-green) !important;
+}
+
+/* Modal Specifics */
+#video-modal .bg-slate-900 {
+    background-color: #000 !important;
+    border: 2px solid var(--hacker-green) !important;
+}
+
+/* Scrollbar Hacker Style */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #000;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--hacker-green-dim);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--hacker-green);
+}
+
+/* Animations */
+@keyframes flicker {
+    0% {
+        opacity: 0.97;
+    }
+
+    5% {
+        opacity: 0.95;
+    }
+
+    10% {
+        opacity: 0.9;
+    }
+
+    15% {
+        opacity: 0.95;
+    }
+
+    20% {
+        opacity: 0.98;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+body {
+    animation: flicker 0.1s infinite;
+}
