@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const datasetFilter = document.getElementById('dataset-filter');
     const formatFilter = document.getElementById('format-filter');
+    const tagFilter = document.getElementById('tag-filter');
     const resultsInfo = document.getElementById('results-info');
     const loadMoreContainer = document.getElementById('load-more-container');
     const loadMoreBtn = document.getElementById('load-more-btn');
@@ -53,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const [thumbResponse, videoResponse] = await Promise.all([
                 fetch('data/thumbnails.json').catch(() => ({ ok: false })),
-                fetch('data/videos.json')
+                fetch(`data/videos.json?t=${Date.now()}`)
             ]);
 
             if (thumbResponse.ok) {
@@ -101,7 +102,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const option = document.createElement('option');
             option.value = ds;
             option.textContent = ds;
-            datasetFilter.appendChild(option);
+        });
+
+        // Populate Tag Filter
+        const allTags = new Set();
+        allVideos.forEach(v => {
+            if (v.tags && Array.isArray(v.tags)) {
+                v.tags.forEach(tag => allTags.add(tag));
+            }
+        });
+
+        // Clear except first option
+        while (tagFilter.options.length > 1) tagFilter.remove(1);
+
+        [...allTags].sort().forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag;
+            option.textContent = `#${tag}`;
+            tagFilter.appendChild(option);
         });
     }
 
@@ -129,9 +147,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyFilters() {
-        const query = searchInput.value.trim().toLowerCase();
         const dataset = datasetFilter.value;
         const format = formatFilter.value;
+        const tag = tagFilter.value;
 
         const sourcePool = isRandomized ? shuffledVideos : allVideos;
 
@@ -154,6 +172,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!url.endsWith(format)) return false;
             }
 
+            // 4. Tag Filter
+            if (tag !== 'all') {
+                if (!v.tags || !v.tags.includes(tag)) return false;
+            }
+
             return true;
         });
 
@@ -162,11 +185,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Analytics: Track searches and filters
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
-            if (query || dataset !== 'all' || format !== 'all') {
+            if (query || dataset !== 'all' || format !== 'all' || tag !== 'all') {
                 trackEvent('vault_filter', {
                     search_query: query,
                     filter_dataset: dataset,
                     filter_format: format,
+                    filter_tag: tag,
                     results_count: filteredVideos.length
                 });
             }
@@ -176,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event Listeners
     datasetFilter.addEventListener('change', applyFilters);
     formatFilter.addEventListener('change', applyFilters);
+    tagFilter.addEventListener('change', applyFilters);
 
     searchInput.addEventListener('input', applyFilters);
 
@@ -373,6 +398,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <span class="text-[10px] font-mono text-green-800 bg-black border border-green-900 px-2 py-1 rounded-none truncate max-w-[100px]">${video.filename || 'N/A'}</span>
                     </div>
+
+                    ${video.tags && video.tags.length > 0 ? `
+                    <div class="flex flex-wrap gap-2 pt-2 border-t border-white/5 opacity-60 group-hover:opacity-100 transition-opacity">
+                        ${video.tags.map(tag => `<span class="tag-chip hover:bg-green-600 hover:text-black hover:border-green-500 cursor-pointer transition-colors" data-tag="${tag}" onclick="event.stopPropagation(); document.getElementById('tag-filter').value='${tag}'; document.getElementById('tag-filter').dispatchEvent(new Event('change')); window.scrollTo({top: 0, behavior: 'smooth'});">#${tag}</span>`).join('')}
+                    </div>` : ''}
                 </div>
             `;
 

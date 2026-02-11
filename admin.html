@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JEVV - Admin Dashboard</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="bg-black text-slate-300 min-h-screen font-inter">
+    <!-- Navbar -->
+    <nav class="border-b border-white/5 bg-black/80 backdrop-blur-md sticky top-0 z-50">
+        <div class="container mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-8 bg-green-500"></div>
+                <h1 class="text-2xl font-outfit text-white tracking-tighter uppercase">Admin Panel</h1>
+            </div>
+            <div id="admin-user-info" class="hidden flex items-center gap-4">
+                <span id="username-display" class="text-sm font-mono text-slate-500"></span>
+                <button onclick="logout()"
+                    class="text-xs font-mono uppercase tracking-widest text-red-500 hover:text-red-400">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Login Section -->
+    <div id="login-section" class="container mx-auto px-6 py-20 flex justify-center">
+        <div class="w-full max-w-md bg-zinc-950 border border-white/5 p-8 space-y-6">
+            <h2 class="text-xl font-bold font-outfit text-white uppercase tracking-widest text-center">Authentication
+                Required</h2>
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-xs font-mono uppercase text-slate-500">Username</label>
+                    <input type="text" id="username"
+                        class="w-full bg-black border border-white/10 p-3 text-white focus:outline-none focus:ring-1 focus:ring-green-500 font-mono">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-mono uppercase text-slate-500">Password</label>
+                    <input type="password" id="password"
+                        class="w-full bg-black border border-white/10 p-3 text-white focus:outline-none focus:ring-1 focus:ring-green-500 font-mono">
+                </div>
+                <button onclick="login()" id="login-btn"
+                    class="w-full bg-green-600 hover:bg-green-500 text-black font-bold h-12 transition-all uppercase tracking-widest text-sm">Log
+                    In</button>
+                <p id="login-error" class="text-red-500 text-xs font-mono text-center hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboard-section" class="hidden container mx-auto px-6 py-12 space-y-8">
+        <header class="flex justify-between items-end">
+            <div class="space-y-2">
+                <h2 class="text-4xl font-outfit text-white uppercase tracking-tighter">Tag Suggestions</h2>
+                <p class="text-slate-500 font-mono text-sm">Review and approve user-contributed metadata</p>
+            </div>
+            <button onclick="loadSuggestions()"
+                class="p-2 border border-white/10 hover:border-green-500/50 text-slate-500 hover:text-green-500 transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M4 4v5h.582M21 21v-5h-.581M18.46 4.46A9 9 0 0121 12m-2.46 7.54A9 9 0 0110 21m-4.75-1.15A9 9 0 114 12">
+                    </path>
+                </svg>
+            </button>
+        </header>
+
+        <div id="suggestions-list" class="grid gap-4">
+            <!-- Suggestions will be loaded here -->
+            <div class="text-center py-20 border border-white/5">
+                <p class="text-slate-600 font-mono animate-pulse">Initializing Dashboard...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js?v=1.0.1"></script>
+</body>
+
+</html>

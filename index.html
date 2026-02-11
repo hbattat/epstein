@@ -90,7 +90,7 @@
                     </button>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-6 border-t border-white/5">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 border-t border-white/5">
                     <div class="space-y-2">
                         <label class="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Dataset</label>
                         <select id="dataset-filter"
@@ -106,6 +106,13 @@
                             <option value=".mp4">MP4 Video</option>
                             <option value=".mov">QuickTime MOV</option>
                             <option value=".wmv">Windows Media</option>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Tag</label>
+                        <select id="tag-filter"
+                            class="w-full bg-black border border-white/10 rounded-none py-3 px-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all appearance-none cursor-pointer">
+                            <option value="all">All Tags</option>
                         </select>
                     </div>
                 </div>
@@ -203,7 +210,7 @@
         </div>
     </footer>
 
-    <script src="app.js?v=1.0.4"></script>
+    <script src="app.js?v=1.0.5"></script>
 </body>
 
 </html>

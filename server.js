@@ -8,16 +8,36 @@ const cluster = require('cluster');
 const os = require('os');
 
 const PORT = 3000;
-const numCPUs = os.cpus().length;
+const numCPUs = 1; // Temporarily disabling clustering to ensure session and cache consistency
 
 // In-memory cache for static assets (up to 50MB total for safety)
 const fileCache = new Map();
 const MAX_CACHE_SIZE_MB = 50;
 let currentCacheSize = 0;
 
+// Simple session management
+const sessions = new Map();
+
+function getCookies(req) {
+    const list = {};
+    const rc = req.headers.cookie;
+    rc && rc.split(';').forEach(cookie => {
+        const parts = cookie.split('=');
+        list[parts.shift().trim()] = decodeURI(parts.join('='));
+    });
+    return list;
+}
+
+function isAdmin(req) {
+    const cookies = getCookies(req);
+    return sessions.has(cookies.sessionToken);
+}
+
 function serveRequest(req, res) {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
+
+    console.log(`[${new Date().toISOString()}] ${req.method} ${pathname}`);
 
     // Proxy endpoint to bypass CORS and Referer checks
     if (pathname === '/proxy') {
@@ -120,6 +140,8 @@ function serveRequest(req, res) {
                             res.writeHead(500, { 'Content-Type': 'application/json' });
                             res.end(JSON.stringify({ error: 'Failed to save suggestion' }));
                         } else {
+                            // Invalidate cache for suggestions.json
+                            fileCache.delete(storagePath);
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(JSON.stringify({ success: true, message: 'Tag suggestion submitted for review' }));
                         }
@@ -128,6 +150,137 @@ function serveRequest(req, res) {
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid JSON request' }));
+            }
+        });
+        return;
+    }
+
+    // ADMIN LOGIN
+    if (pathname === '/api/admin/login' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk.toString());
+        req.on('end', () => {
+            try {
+                const { username, password } = JSON.parse(body);
+                const usersPath = path.join(__dirname, 'data', 'users.json');
+                const usersData = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+
+                const user = usersData.users.find(u => u.username === username && u.password === password);
+
+                if (user) {
+                    const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                    sessions.set(sessionToken, { username, expires: Date.now() + 3600000 }); // 1 hour
+                    res.writeHead(200, {
+                        'Set-Cookie': `sessionToken=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+                        'Content-Type': 'application/json'
+                    });
+                    res.end(JSON.stringify({ success: true }));
+                } else {
+                    res.writeHead(401, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid credentials' }));
+                }
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid request' }));
+            }
+        });
+        return;
+    }
+
+    // ADMIN SUGGESTIONS FETCH
+    if (pathname === '/api/admin/suggestions' && req.method === 'GET') {
+        if (!isAdmin(req)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
+        const storagePath = path.join(__dirname, 'data', 'tag_suggestions.json');
+        fs.readFile(storagePath, 'utf8', (err, data) => {
+            let suggestions = [];
+            if (!err && data) {
+                try { suggestions = JSON.parse(data); } catch (e) { }
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(suggestions));
+        });
+        return;
+    }
+
+    // ADMIN APPROVE/EDIT TAG
+    if (pathname === '/api/admin/approve' && req.method === 'POST') {
+        if (!isAdmin(req)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
+        let body = '';
+        req.on('data', chunk => body += chunk.toString());
+        req.on('end', () => {
+            try {
+                const { videoUrl, tag, timestamp } = JSON.parse(body);
+                const cleanTag = tag.trim();
+
+                // 1. Remove from suggestions
+                const suggestionPath = path.join(__dirname, 'data', 'tag_suggestions.json');
+                let suggestions = JSON.parse(fs.readFileSync(suggestionPath, 'utf8'));
+                suggestions = suggestions.filter(s => !(s.videoUrl === videoUrl && s.timestamp === timestamp));
+                fs.writeFileSync(suggestionPath, JSON.stringify(suggestions, null, 2));
+
+                // 2. Add to videos.json
+                const videosPath = path.join(__dirname, 'data', 'videos.json');
+                const videos = JSON.parse(fs.readFileSync(videosPath, 'utf8'));
+                const matches = videos.filter(v => v.url === videoUrl);
+
+                if (matches.length > 0) {
+                    matches.forEach(video => {
+                        if (!video.tags) video.tags = [];
+                        if (!video.tags.includes(cleanTag)) {
+                            video.tags.push(cleanTag);
+                        }
+                    });
+                    fs.writeFileSync(videosPath, JSON.stringify(videos, null, 2));
+                    // Invalidate cache since videos.json changed
+                    fileCache.delete(videosPath);
+
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, message: 'Tag approved and added to video' }));
+                } else {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Video not found' }));
+                }
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid request' }));
+            }
+        });
+        return;
+    }
+
+    // ADMIN REJECT TAG
+    if (pathname === '/api/admin/reject' && req.method === 'POST') {
+        if (!isAdmin(req)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
+        let body = '';
+        req.on('data', chunk => body += chunk.toString());
+        req.on('end', () => {
+            try {
+                const { videoUrl, timestamp } = JSON.parse(body);
+                const suggestionPath = path.join(__dirname, 'data', 'tag_suggestions.json');
+                let suggestions = JSON.parse(fs.readFileSync(suggestionPath, 'utf8'));
+                suggestions = suggestions.filter(s => !(s.videoUrl === videoUrl && s.timestamp === timestamp));
+                fs.writeFileSync(suggestionPath, JSON.stringify(suggestions, null, 2));
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, message: 'Suggestion rejected and removed' }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid request' }));
             }
         });
         return;
@@ -158,12 +311,14 @@ function serveRequest(req, res) {
     const acceptEncoding = req.headers['accept-encoding'] || '';
     const canGzip = acceptEncoding.includes('gzip');
 
-    // Serve from memory cache if available
-    if (fileCache.has(filePath)) {
+    // Serve from memory cache if available (except for data files)
+    /*
+    const isDataFile = pathname.startsWith('/data/');
+    if (!isDataFile && fileCache.has(filePath)) {
         const { content, gzipContent } = fileCache.get(filePath);
         const headers = {
             'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=3600'
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
         };
         if (canGzip && gzipContent) {
             headers['Content-Encoding'] = 'gzip';
@@ -175,6 +330,7 @@ function serveRequest(req, res) {
         }
         return;
     }
+    */
 
     fs.readFile(filePath, (error, content) => {
         if (error) {
@@ -192,14 +348,8 @@ function serveRequest(req, res) {
                 zlib.gzip(content, (err, compressed) => {
                     const headers = {
                         'Content-Type': contentType,
-                        'Cache-Control': 'public, max-age=3600'
+                        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
                     };
-
-                    // Update cache
-                    if (currentCacheSize + content.length / 1024 / 1024 < MAX_CACHE_SIZE_MB) {
-                        fileCache.set(filePath, { content, gzipContent: err ? null : compressed });
-                        currentCacheSize += content.length / 1024 / 1024;
-                    }
 
                     if (!err && canGzip) {
                         headers['Content-Encoding'] = 'gzip';
@@ -211,13 +361,9 @@ function serveRequest(req, res) {
                     }
                 });
             } else {
-                if (currentCacheSize + content.length / 1024 / 1024 < MAX_CACHE_SIZE_MB) {
-                    fileCache.set(filePath, { content, gzipContent: null });
-                    currentCacheSize += content.length / 1024 / 1024;
-                }
                 res.writeHead(200, {
                     'Content-Type': contentType,
-                    'Cache-Control': 'public, max-age=3600'
+                    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
                 });
                 res.end(content);
             }
