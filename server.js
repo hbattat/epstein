@@ -6,6 +6,7 @@ const url = require('url');
 const zlib = require('zlib');
 const cluster = require('cluster');
 const os = require('os');
+const crypto = require('crypto');
 
 const PORT = 3000;
 const numCPUs = 1; // Temporarily disabling clustering to ensure session and cache consistency
@@ -161,24 +162,52 @@ function serveRequest(req, res) {
         req.on('data', chunk => body += chunk.toString());
         req.on('end', () => {
             try {
+                // Rate Limiting
+                const ip = req.socket.remoteAddress;
+                const now = Date.now();
+                if (!global.loginAttempts) global.loginAttempts = {};
+
+                // Cleanup old attempts (> 15 mins)
+                for (const k in global.loginAttempts) {
+                    if (now - global.loginAttempts[k].timestamp > 900000) delete global.loginAttempts[k];
+                }
+
+                if (global.loginAttempts[ip] && global.loginAttempts[ip].count >= 5) {
+                    const timeLeft = Math.ceil((900000 - (now - global.loginAttempts[ip].timestamp)) / 60000);
+                    res.writeHead(429, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Too many failed attempts. Try again in ${timeLeft} minutes.` }));
+                    return;
+                }
+
                 const { username, password } = JSON.parse(body);
                 const usersPath = path.join(__dirname, 'data', 'users.json');
                 const usersData = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
 
-                const user = usersData.users.find(u => u.username === username && u.password === password);
+                const user = usersData.users.find(u => u.username === username);
 
                 if (user) {
-                    const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-                    sessions.set(sessionToken, { username, expires: Date.now() + 3600000 }); // 1 hour
-                    res.writeHead(200, {
-                        'Set-Cookie': `sessionToken=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
-                        'Content-Type': 'application/json'
-                    });
-                    res.end(JSON.stringify({ success: true }));
-                } else {
-                    res.writeHead(401, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Invalid credentials' }));
+                    const hash = crypto.pbkdf2Sync(password, user.salt, 1000, 64, 'sha512').toString('hex');
+                    if (hash === user.hash) {
+                        // Success - reset attempts
+                        if (global.loginAttempts[ip]) delete global.loginAttempts[ip];
+
+                        const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                        sessions.set(sessionToken, { username, expires: Date.now() + 3600000 }); // 1 hour
+                        res.writeHead(200, {
+                            'Set-Cookie': `sessionToken=${sessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+                            'Content-Type': 'application/json'
+                        });
+                        res.end(JSON.stringify({ success: true }));
+                        return;
+                    }
                 }
+
+                // Failure
+                if (!global.loginAttempts[ip]) global.loginAttempts[ip] = { count: 1, timestamp: now };
+                else global.loginAttempts[ip].count++;
+
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid credentials' }));
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid request' }));

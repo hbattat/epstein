@@ -2,7 +2,8 @@
     "users": [
         {
             "username": "hbattat",
-            "password": "ItsMe@jevv7"
+            "salt": "c1a406e5c94d74c29d51738917b3ab5a",
+            "hash": "43b31255f35c84cff1c3a3325c75955c78097ad735537fb8ca3d17f7cadd95afefc02975fc2353c4e3b013da3f8651b575e04ce5220e82907f5bc5c02d4c91d7"
         }
     ]
 }
