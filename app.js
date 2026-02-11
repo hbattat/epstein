@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadMoreContainer = document.getElementById('load-more-container');
     const loadMoreBtn = document.getElementById('load-more-btn');
     const modalDownload = document.getElementById('modal-download');
+    const randomAuditBtn = document.getElementById('random-audit-btn');
 
     let searchTimeout;
 
@@ -182,6 +183,22 @@ document.addEventListener('DOMContentLoaded', () => {
             total_available: filteredVideos.length
         });
     });
+
+    function openRandomVideo() {
+        if (filteredVideos.length === 0) return;
+        const randomIndex = Math.floor(Math.random() * filteredVideos.length);
+        const video = filteredVideos[randomIndex];
+        openVideo(video);
+
+        trackEvent('vault_random_audit', {
+            video_title: video.title,
+            dataset: video.dataset
+        });
+    }
+
+    if (randomAuditBtn) {
+        randomAuditBtn.addEventListener('click', openRandomVideo);
+    }
 
     function renderVideos(videos, append = false) {
         if (!append) videoGrid.innerHTML = '';
