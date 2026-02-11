@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tagInput = document.getElementById('tag-suggestion-input');
     const submitTagBtn = document.getElementById('submit-tag-btn');
     const tagFeedback = document.getElementById('tag-feedback');
+    const activeTagsContainer = document.getElementById('active-tags-container');
 
     let searchTimeout;
 
@@ -181,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function applyFilters() {
+        console.log('Applying filters. Active tags:', Array.from(selectedTags));
         const query = searchInput.value.trim().toLowerCase();
         const dataset = datasetFilter.value;
         const format = formatFilter.value;
@@ -242,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     tagFilter.addEventListener('change', () => {
         const tag = tagFilter.value;
+        console.log('Tag selected from dropdown:', tag);
         if (tag !== 'all') {
             selectedTags.add(tag);
             tagFilter.value = 'all'; // Reset dropdown
