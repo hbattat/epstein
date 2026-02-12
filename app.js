@@ -313,16 +313,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // TAG SUGGESTION LOGIC
-    function initReCaptcha() {
-        if (typeof grecaptcha !== 'undefined' && reCaptchaWidgetId === null) {
-            try {
-                reCaptchaWidgetId = grecaptcha.render('captcha-container', {
-                    'sitekey': '6Lc-bGgsAAAAALa8TIQy-fjYNRB0if6288VOAeXR',
-                    'theme': 'dark'
-                });
-            } catch (e) { console.error('reCAPTCHA init error:', e); }
-        }
-    }
 
     async function submitTag() {
         console.log('Submit tag clicked for video:', currentVideoUrl);
@@ -342,17 +332,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        let captchaToken = 'localhost-mock-token';
+        let captchaToken = null;
 
-        if (!isLocal) {
-            captchaToken = grecaptcha.getResponse(reCaptchaWidgetId);
-            if (!captchaToken) {
-                showTagFeedback('Please complete reCAPTCHA', 'text-red-400');
+        // Always get token
+        if (typeof grecaptcha !== 'undefined') {
+            try {
+                captchaToken = await grecaptcha.execute('6Lc-bGgsAAAAALa8TIQy-fjYNRB0if6288VOAeXR', { action: 'submit_tag' });
+            } catch (e) {
+                console.warn('reCAPTCHA execution failed:', e);
+                showTagFeedback('Anti-spam check failed. Refresh and try again.', 'text-red-400');
                 return;
             }
-        } else {
-            console.log('Skipping reCAPTCHA for localhost');
         }
 
         submitTagBtn.disabled = true;
@@ -374,7 +364,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 showTagFeedback(result.message, 'text-green-500');
                 tagInput.value = '';
-                grecaptcha.reset(reCaptchaWidgetId);
             } else {
                 showTagFeedback(result.error || 'Submission failed', 'text-red-500');
             }
@@ -503,8 +492,8 @@ document.addEventListener('DOMContentLoaded', () => {
         mainPlayer.src = proxyUrl;
         currentVideoUrl = finalUrl;
 
-        // Initialize reCAPTCHA if not already
-        initReCaptcha();
+        mainPlayer.src = proxyUrl;
+        currentVideoUrl = finalUrl;
 
         // Setup download button in modal
         if (modalDownload) {

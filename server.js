@@ -11,6 +11,42 @@ const crypto = require('crypto');
 const PORT = 3000;
 const numCPUs = 1; // Temporarily disabling clustering to ensure session and cache consistency
 
+// RECAPTCHA V3 CONFIGURATION
+// Ideally this should be an environment variable
+const RECAPTCHA_SECRET_KEY = 'YOUR_SECRET_KEY_HERE'; // User needs to provide this
+
+async function verifyRecaptcha(token, ip) {
+    if (!token) return false;
+
+    return new Promise((resolve) => {
+        const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}&remoteip=${ip}`;
+
+        https.get(verifyUrl, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                try {
+                    const result = JSON.parse(data);
+                    // v3 returns score 0.0 - 1.0
+                    // We accept score >= 0.5
+                    if (result.success && result.score >= 0.5) {
+                        resolve(true);
+                    } else {
+                        console.warn(`reCAPTCHA failed: success=${result.success}, score=${result.score}`);
+                        resolve(false);
+                    }
+                } catch (e) {
+                    console.error('reCAPTCHA parse error:', e);
+                    resolve(false);
+                }
+            });
+        }).on('error', (e) => {
+            console.error('reCAPTCHA request error:', e);
+            resolve(false);
+        });
+    });
+}
+
 // In-memory cache for static assets (up to 50MB total for safety)
 const fileCache = new Map();
 const MAX_CACHE_SIZE_MB = 50;
@@ -94,9 +130,19 @@ function serveRequest(req, res) {
     if (pathname === '/api/suggest-tag' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
                 const { videoUrl, tag, captchaToken } = JSON.parse(body);
+
+                // Verify reCAPTCHA
+                const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+                const isHuman = await verifyRecaptcha(captchaToken, clientIp);
+
+                if (!isHuman) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Anti-spam check failed. Please refresh and try again.' }));
+                    return;
+                }
 
                 // VALIDATION
                 if (!videoUrl || !tag || !captchaToken) {
