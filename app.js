@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadMoreContainer = document.getElementById('load-more-container');
     const loadMoreBtn = document.getElementById('load-more-btn');
     const modalDownload = document.getElementById('modal-download');
+    const modalShareBtn = document.getElementById('modal-share-btn');
     const randomAuditBtn = document.getElementById('random-audit-btn');
     const tagInput = document.getElementById('tag-suggestion-input');
     const submitTagBtn = document.getElementById('submit-tag-btn');
@@ -564,6 +565,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 video_title: modalTitle.textContent,
                 source: 'modal'
             });
+        });
+    }
+
+    // Share Functionality
+    if (modalShareBtn) {
+        modalShareBtn.addEventListener('click', async () => {
+            const shareData = {
+                title: 'JEVV - Jeffrey Epstein Video Vault',
+                text: `Watch this recording: ${modalTitle.textContent}`,
+                url: window.location.href // or currentVideoUrl if distinct per video
+            };
+
+            // If we have a direct link capability later, use it. For now, site URL.
+            // Actually, let's just share the site URL as we don't have per-video routing yet.
+            // Or better, if we can, share the direct file link if it's public? 
+            // No, let's share the main site URL for now as per instructions "share the website".
+
+            try {
+                if (navigator.share) {
+                    await navigator.share(shareData);
+                    trackEvent('vault_share', { method: 'native', title: modalTitle.textContent });
+                } else {
+                    await navigator.clipboard.writeText(window.location.href);
+                    // Visual feedback
+                    const originalContent = modalShareBtn.innerHTML;
+                    modalShareBtn.innerHTML = `<span class="text-xs font-bold text-green-500">COPIED</span>`;
+                    modalShareBtn.classList.add('border-green-400', 'bg-green-900/40');
+                    setTimeout(() => {
+                        modalShareBtn.innerHTML = originalContent;
+                        modalShareBtn.classList.remove('border-green-400', 'bg-green-900/40');
+                    }, 2000);
+                    trackEvent('vault_share', { method: 'clipboard', title: modalTitle.textContent });
+                }
+            } catch (err) {
+                console.error('Share failed:', err);
+            }
         });
     }
 });
