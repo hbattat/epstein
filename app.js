@@ -78,6 +78,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             filteredVideos = [...allVideos];
             renderInitialResults();
+
+            // Deep Linking Handler
+            const urlParams = new URLSearchParams(window.location.search);
+            const videoId = urlParams.get('v');
+            if (videoId) {
+                const video = allVideos.find(v => v.title === videoId || v.filename === videoId);
+                if (video) {
+                    console.log('Deep link found, opening video:', videoId);
+                    openVideo(video);
+                }
+            }
         } catch (error) {
             console.error('Data load error:', error);
             videoGrid.innerHTML = `
@@ -571,23 +582,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Share Functionality
     if (modalShareBtn) {
         modalShareBtn.addEventListener('click', async () => {
+            // Generate Deep Link
+            const baseUrl = window.location.origin + window.location.pathname;
+            const videoId = modalTitle.textContent; // Using title as ID per server logic
+            const shareUrl = `${baseUrl}?v=${encodeURIComponent(videoId)}`;
+
             const shareData = {
                 title: 'JEVV - Jeffrey Epstein Video Vault',
-                text: `Watch this recording: ${modalTitle.textContent}`,
-                url: window.location.href // or currentVideoUrl if distinct per video
+                text: `Watch this recording: ${videoId}`,
+                url: shareUrl
             };
-
-            // If we have a direct link capability later, use it. For now, site URL.
-            // Actually, let's just share the site URL as we don't have per-video routing yet.
-            // Or better, if we can, share the direct file link if it's public? 
-            // No, let's share the main site URL for now as per instructions "share the website".
 
             try {
                 if (navigator.share) {
                     await navigator.share(shareData);
-                    trackEvent('vault_share', { method: 'native', title: modalTitle.textContent });
+                    trackEvent('vault_share', { method: 'native', title: videoId });
                 } else {
-                    await navigator.clipboard.writeText(window.location.href);
+                    await navigator.clipboard.writeText(shareUrl);
                     // Visual feedback
                     const originalContent = modalShareBtn.innerHTML;
                     modalShareBtn.innerHTML = `<span class="text-xs font-bold text-green-500">COPIED</span>`;

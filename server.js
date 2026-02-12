@@ -315,6 +315,63 @@ function serveRequest(req, res) {
         return;
     }
 
+    // Serve index.html for root or /index.html with Dynamic OG Tags
+    if (pathname === '/' || pathname === '/index.html') {
+        const videoId = parsedUrl.query.v; // Expecting title or ID
+        const indexPath = path.join(__dirname, 'index.html');
+
+        fs.readFile(indexPath, 'utf8', (err, html) => {
+            if (err) {
+                res.writeHead(500);
+                res.end('Error loading index.html');
+                return;
+            }
+
+            if (videoId) {
+                // Try to find video details
+                const videosPath = path.join(__dirname, 'data', 'videos.json');
+                const thumbsPath = path.join(__dirname, 'data', 'thumbnails.json');
+
+                try {
+                    const videos = JSON.parse(fs.readFileSync(videosPath, 'utf8'));
+                    const thumbnails = JSON.parse(fs.readFileSync(thumbsPath, 'utf8'));
+
+                    // Find video by title (which we use as ID mostly) or filename?
+                    const video = videos.find(v => v.title === videoId || v.filename === videoId);
+
+                    if (video) {
+                        const title = `JEVV - ${video.title || 'Video Recording'}`;
+                        const desc = `Watch this recording from the Jeffrey Epstein dataset. ${video.dataset || ''}`;
+
+                        // Resolve thumbnail
+                        let thumbUrl = thumbnails[video.url] || thumbnails[video.filename];
+                        // If thumb is relative/local, make it absolute for OG
+                        if (thumbUrl && !thumbUrl.startsWith('http')) {
+                            thumbUrl = `https://jevv.curlybrac.es/${thumbUrl}`;
+                        } else if (!thumbUrl) {
+                            thumbUrl = 'https://jevv.curlybrac.es/og-preview.png';
+                        }
+
+                        // Replace Meta Tags
+                        html = html.replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${title}">`);
+                        html = html.replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${desc}">`);
+                        html = html.replace(/<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${thumbUrl}">`);
+
+                        html = html.replace(/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${title}">`);
+                        html = html.replace(/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${desc}">`);
+                        html = html.replace(/<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${thumbUrl}">`);
+                    }
+                } catch (e) {
+                    // console.error('Error injecting OG data:', e);
+                }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(html);
+        });
+        return;
+    }
+
     // Static file serving
     let filePath = path.join(__dirname, pathname === '/' ? 'index.html' : pathname);
     if (!filePath.startsWith(__dirname)) {
