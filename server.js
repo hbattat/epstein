@@ -11,7 +11,6 @@ const zlib = require('zlib');
 
 const PORT = 3000;
 // HLS STATE
-const activeUnknownSessions = new Map(); // hash -> process
 const hlsOutputDir = path.join(__dirname, 'data', 'hls');
 
 // Ensure HLS dir exists
@@ -32,12 +31,7 @@ setInterval(() => {
                 if (now - stats.mtimeMs > 30 * 60 * 1000) {
                     console.log('[HLS] Cleaning up expired session:', dir);
                     fs.rm(dirPath, { recursive: true, force: true }, () => { });
-                    // Kill process if active
-                    if (activeUnknownSessions.has(dir)) {
-                        const proc = activeUnknownSessions.get(dir);
-                        proc.kill('SIGKILL');
-                        activeUnknownSessions.delete(dir);
-                    }
+                    // No more long-running processes to kill in VOD mode
                 }
             });
         });
@@ -85,50 +79,100 @@ async function verifyRecaptcha(token, ip) {
 
 const rateLimits = new Map(); // ip -> { count, startTime }
 
-function ensureHlsSession(targetUrl, fileHash) {
-    const sessionDir = path.join(hlsOutputDir, fileHash);
-    const playlistPath = path.join(sessionDir, 'master.m3u8');
+async function probeVideoMetadata(targetUrl) {
+    return new Promise((resolve, reject) => {
+        const ffprobe = spawn('ffprobe', [
+            '-v', 'error',
+            '-show_entries', 'format=duration,start_time',
+            '-of', 'json',
+            '-headers', 'Cookie: justiceGovAgeVerified=true\r\n',
+            '-user_agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            targetUrl
+        ]);
 
-    // If session active or playlist exists and is recent, assume good
-    if (activeUnknownSessions.has(fileHash)) return;
+        let output = '';
+        ffprobe.stdout.on('data', data => output += data.toString());
+        ffprobe.on('close', code => {
+            if (code === 0) {
+                try {
+                    const data = JSON.parse(output);
+                    resolve({
+                        duration: parseFloat(data.format.duration),
+                        startTime: parseFloat(data.format.start_time || 0)
+                    });
+                } catch (e) {
+                    reject(e);
+                }
+            }
+            else reject(new Error(`ffprobe failed with code ${code}`));
+        });
+    });
+}
 
-    // Check if playlist exists (resume session)
-    if (fs.existsSync(playlistPath)) {
-        return;
+function generateVodPlaylist(sessionDir, duration, segmentDuration = 4) {
+    const totalSegments = Math.ceil(duration / segmentDuration);
+    let playlist = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:${segmentDuration}\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n`;
+
+    for (let i = 0; i < totalSegments; i++) {
+        const remaining = duration - (i * segmentDuration);
+        const currentSegmentDuration = Math.min(segmentDuration, remaining);
+        playlist += `#EXTINF:${currentSegmentDuration.toFixed(6)},\nsegment_${i.toString().padStart(3, '0')}.ts\n`;
     }
 
-    if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(sessionDir, { recursive: true });
+    playlist += '#EXT-X-ENDLIST\n';
+    fs.writeFileSync(path.join(sessionDir, 'master.m3u8'), playlist);
+}
+
+const activeTranscodes = new Map(); // segmentPath -> Promise
+
+async function transcodeSegment(targetUrl, index, segmentPath, segmentDuration = 4) {
+    if (activeTranscodes.has(segmentPath)) {
+        return activeTranscodes.get(segmentPath);
     }
 
-    console.log(`[HLS] Starting session for ${fileHash}`);
+    const transcodePromise = (async () => {
+        const sessionDir = path.dirname(segmentPath);
+        const metaPath = path.join(sessionDir, 'metadata.json');
+        let videoStartTime = 0;
+        if (fs.existsSync(metaPath)) {
+            try {
+                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                videoStartTime = meta.startTime || 0;
+            } catch (e) { }
+        }
 
-    const encodedTargetUrl = new URL(targetUrl).href;
+        return new Promise((resolve, reject) => {
+            const startTime = index * segmentDuration;
+            const ffmpegArgs = [
+                '-headers', 'Cookie: justiceGovAgeVerified=true\r\n',
+                '-user_agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '-ss', startTime.toString(),
+                '-i', targetUrl,
+                '-t', segmentDuration.toString(),
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-vf', 'setpts=PTS-STARTPTS',
+                '-af', 'asetpts=PTS-STARTPTS',
+                '-output_ts_offset', startTime.toString(),
+                '-muxdelay', '0',
+                '-f', 'mpegts',
+                segmentPath
+            ];
 
-    const ffmpegArgs = [
-        '-headers', 'Cookie: justiceGovAgeVerified=true\r\n',
-        '-user_agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '-i', encodedTargetUrl,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-        '-c:a', 'aac', '-b:a', '128k',
-        '-f', 'hls',
-        '-hls_time', '4',
-        '-hls_list_size', '0',
-        '-hls_segment_filename', path.join(sessionDir, 'segment_%03d.ts'),
-        path.join(sessionDir, 'master.m3u8')
-    ];
+            const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+            ffmpeg.stderr.on('data', d => {
+                // console.error(`[FFmpeg Segment ${index}] ${d}`);
+            });
+            ffmpeg.on('close', code => {
+                activeTranscodes.delete(segmentPath);
+                if (code === 0) resolve();
+                else reject(new Error(`ffmpeg failed with code ${code}`));
+            });
+        });
+    })();
 
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-    activeUnknownSessions.set(fileHash, ffmpeg);
-
-    ffmpeg.stderr.on('data', d => {
-        // console.log(`[FFmpeg HLS] ${d}`);
-    });
-
-    ffmpeg.on('close', (code) => {
-        console.log(`[HLS] Session ${fileHash} finished with code ${code}`);
-        activeUnknownSessions.delete(fileHash);
-    });
+    activeTranscodes.set(segmentPath, transcodePromise);
+    return transcodePromise;
 }
 
 // In-memory cache for static assets (up to 50MB total for safety)
@@ -220,14 +264,32 @@ function serveRequest(req, res) {
         }
 
         // HLS: Return M3U8 Playlist (Default behavior)
-        // Redirect legacy proxy to HLS stream
         const fileHash = crypto.createHash('md5').update(targetUrl).digest('hex');
-        const streamPath = `/stream/${fileHash}/master.m3u8`;
+        const sessionDir = path.join(hlsOutputDir, fileHash);
+        const playlistPath = path.join(sessionDir, 'master.m3u8');
 
-        ensureHlsSession(targetUrl, fileHash);
+        if (fs.existsSync(playlistPath)) {
+            res.writeHead(302, { 'Location': `/stream/${fileHash}/master.m3u8` });
+            res.end();
+            return;
+        }
 
-        res.writeHead(302, { 'Location': streamPath });
-        res.end();
+        if (!fs.existsSync(sessionDir)) {
+            fs.mkdirSync(sessionDir, { recursive: true });
+        }
+
+        probeVideoMetadata(targetUrl).then(({ duration, startTime }) => {
+            // Save metadata for on-demand transcoding
+            fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({ targetUrl, duration, startTime }));
+
+            generateVodPlaylist(sessionDir, duration);
+            res.writeHead(302, { 'Location': `/stream/${fileHash}/master.m3u8` });
+            res.end();
+        }).catch(err => {
+            console.error('[HLS Probe Error]', err);
+            res.writeHead(500);
+            res.end('Failed to probe video duration');
+        });
         return;
     }
 
@@ -244,45 +306,59 @@ function serveRequest(req, res) {
             return;
         }
 
-        const filePath = path.join(hlsOutputDir, fileHash, fileName);
+        const sessionDir = path.join(hlsOutputDir, fileHash);
+        const filePath = path.join(sessionDir, fileName);
 
-        // Wait loop for playlist (if generating)
-        if ((fileName === 'master.m3u8' || fileName === 'master.m3u') && !fs.existsSync(filePath) && !fs.existsSync(filePath + '8')) {
-            let checks = 0;
-            const checkInterval = setInterval(() => {
-                checks++;
-                // Check for both .m3u8 (direct) and .m3u->.m3u8 (alias)
-                if (fs.existsSync(filePath) || (fileName.endsWith('.m3u') && fs.existsSync(filePath + '8'))) {
-                    clearInterval(checkInterval);
-                    const actualPath = fs.existsSync(filePath) ? filePath : filePath + '8';
-                    serveFile(res, actualPath, 'application/vnd.apple.mpegurl');
-                } else if (checks > 40) { // Timeout 4s
-                    clearInterval(checkInterval);
-                    res.writeHead(404);
-                    res.end('Stream generation timeout');
-                }
-            }, 100);
+        if (fileName === 'master.m3u8') {
+            if (fs.existsSync(filePath)) {
+                serveFile(res, filePath, 'application/vnd.apple.mpegurl');
+            } else {
+                res.writeHead(404);
+                res.end('Playlist not found');
+            }
             return;
         }
 
-        if (fs.existsSync(filePath)) {
-            const contentType = (fileName.endsWith('.m3u8') || fileName.endsWith('.m3u'))
-                ? 'application/vnd.apple.mpegurl'
-                : 'video/MP2T';
-
-            serveFile(res, filePath, contentType);
-        } else if (fileName.endsWith('.m3u')) {
-            const aliasPath = filePath + '8';
-            if (fs.existsSync(aliasPath)) {
-                serveFile(res, aliasPath, 'application/vnd.apple.mpegurl');
-            } else {
-                res.writeHead(404);
-                res.end('Not found (alias failed)');
+        if (fileName.startsWith('segment_') && fileName.endsWith('.ts')) {
+            if (fs.existsSync(filePath)) {
+                serveFile(res, filePath, 'video/MP2T');
+                return;
             }
-        } else {
-            res.writeHead(404);
-            res.end('Not found');
+
+            // Generate segment on demand
+            const match = fileName.match(/segment_(\d+)\.ts/);
+            if (!match) {
+                res.writeHead(400);
+                res.end('Invalid segment name');
+                return;
+            }
+            const segmentIndex = parseInt(match[1]);
+
+            const metaPath = path.join(sessionDir, 'metadata.json');
+            if (!fs.existsSync(metaPath)) {
+                res.writeHead(404);
+                res.end('Session metadata missing');
+                return;
+            }
+
+            const { targetUrl } = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+
+            transcodeSegment(targetUrl, segmentIndex, filePath)
+                .then(() => {
+                    serveFile(res, filePath, 'video/MP2T');
+                })
+                .catch(err => {
+                    console.error('[HLS Transcode Error]', err);
+                    if (!res.writableEnded) {
+                        res.writeHead(500);
+                        res.end('Transcoding failed');
+                    }
+                });
+            return;
         }
+
+        res.writeHead(404);
+        res.end('Not found');
         return;
     }
 
