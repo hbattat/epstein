@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+data/hls/*
+.git
+.DS_Store
+*.md
+Dockerfile
+docker-compose.yml
