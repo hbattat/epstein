@@ -76,6 +76,8 @@ function serveRequest(req, res) {
 
     console.log(`[${new Date().toISOString()}] ${req.method} ${pathname}`);
 
+    const { spawn } = require('child_process');
+
     // Proxy endpoint to bypass CORS and Referer checks
     if (pathname === '/proxy') {
         const targetUrl = parsedUrl.query.url;
@@ -93,6 +95,62 @@ function serveRequest(req, res) {
             res.end('Invalid URL format. Must be a full absolute URL.');
             return;
         }
+
+        // Check if transcoding is needed (non-native formats)
+        // Native mostly: mp4, webm, ogg, mp3, wav
+        // Non-native likely: mov, wmv, avi, mkv, flv, 3gp
+        const fileExt = path.extname(new URL(targetUrl).pathname).toLowerCase();
+        // We process everything through FFmpeg to ensure fast start (fragmented MP4)
+        console.log(`[Stream] Processing ${fileExt}: ${targetUrl}`);
+
+        res.writeHead(200, {
+            'Content-Type': 'video/mp4',
+            'Access-Control-Allow-Origin': '*',
+        });
+
+        // Base args
+        let ffmpegArgs = [
+            '-i', targetUrl,
+            '-movflags', 'frag_keyframe+empty_moov',
+            '-f', 'mp4'
+        ];
+
+        // Optimization: Remux native MP4s (copy) for speed, Transcode others
+        if (fileExt === '.mp4' || fileExt === '.m4a') {
+            ffmpegArgs.push('-c', 'copy');
+        } else {
+            ffmpegArgs.push(
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-c:a', 'aac'
+            );
+        }
+
+        ffmpegArgs.push('-'); // Output to stdout
+
+        const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+        ffmpeg.stdout.pipe(res);
+
+        ffmpeg.stderr.on('data', (data) => {
+            // console.log(`FFmpeg Log: ${data}`); // Verbose logging
+        });
+
+        ffmpeg.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`FFmpeg finished with code ${code}`);
+            }
+            res.end();
+        });
+
+        // Clean up if client disconnects
+        req.on('close', () => {
+            // Silence kill if already closed
+            try { ffmpeg.kill(); } catch (e) { }
+        });
+
+        return;
+
 
         const options = {
             headers: {
