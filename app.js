@@ -470,6 +470,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    let hls = null;
+
     function openVideo(video) {
         let finalUrl = video.url;
 
@@ -488,17 +490,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
         modalTitle.textContent = video.title || 'Untitled Video';
 
+        // HLS Logic
         const proxyUrl = `/proxy?url=${encodeURIComponent(finalUrl)}`;
-        mainPlayer.src = proxyUrl;
-        currentVideoUrl = finalUrl;
 
-        mainPlayer.src = proxyUrl;
+        if (Hls.isSupported()) {
+            if (hls) {
+                hls.destroy();
+            }
+            hls = new Hls();
+
+            // Point HLS to the proxy. The proxy will returned a 302 redirect to the .m3u8
+            // hls.js handles redirects automatically.
+            hls.loadSource(proxyUrl);
+            hls.attachMedia(mainPlayer);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                mainPlayer.play();
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('HLS Error:', data);
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            hls.destroy();
+                            break;
+                    }
+                }
+            });
+
+        } else if (mainPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari Native HLS
+            mainPlayer.src = proxyUrl;
+            mainPlayer.addEventListener('loadedmetadata', () => {
+                mainPlayer.play();
+            });
+        } else {
+            // Fallback (shouldn't happen on modern browsers)
+            mainPlayer.src = proxyUrl;
+        }
+
         currentVideoUrl = finalUrl;
 
         // Setup download button in modal
         if (modalDownload) {
             const filename = finalUrl ? finalUrl.split('/').pop() : (video.filename || 'video');
-            modalDownload.href = proxyUrl;
+            modalDownload.href = proxyUrl + '&mode=download'; // Force download mode
             modalDownload.download = filename;
         }
 
@@ -517,6 +560,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function closeVideo() {
         modal.classList.add('opacity-0');
         modal.classList.remove('opacity-100');
+
+        if (hls) {
+            hls.destroy();
+            hls = null;
+        }
 
         // Wait for animation
         setTimeout(() => {

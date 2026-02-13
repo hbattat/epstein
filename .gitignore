@@ -10,3 +10,6 @@ node_modules/
 
 # Optional: Large binary data
 # data/thumbnails/
+
+# HLS Segments
+data/hls/

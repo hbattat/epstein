@@ -1,15 +1,51 @@
 const http = require('http');
 const https = require('https');
+const url = require('url');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const url = require('url');
-const zlib = require('zlib');
+const { spawn } = require('child_process');
 const cluster = require('cluster');
 const os = require('os');
-const crypto = require('crypto');
+const zlib = require('zlib');
 
 const PORT = 3000;
-const numCPUs = 1; // Temporarily disabling clustering to ensure session and cache consistency
+// HLS STATE
+const activeUnknownSessions = new Map(); // hash -> process
+const hlsOutputDir = path.join(__dirname, 'data', 'hls');
+
+// Ensure HLS dir exists
+if (!fs.existsSync(hlsOutputDir)) {
+    fs.mkdirSync(hlsOutputDir, { recursive: true });
+}
+
+// Cleanup Interval (Every 5 mins)
+setInterval(() => {
+    const now = Date.now();
+    fs.readdir(hlsOutputDir, (err, dirs) => {
+        if (err) return;
+        dirs.forEach(dir => {
+            const dirPath = path.join(hlsOutputDir, dir);
+            fs.stat(dirPath, (err, stats) => {
+                if (err) return;
+                // If directory is older than 30 mins, delete it
+                if (now - stats.mtimeMs > 30 * 60 * 1000) {
+                    console.log('[HLS] Cleaning up expired session:', dir);
+                    fs.rm(dirPath, { recursive: true, force: true }, () => { });
+                    // Kill process if active
+                    if (activeUnknownSessions.has(dir)) {
+                        const proc = activeUnknownSessions.get(dir);
+                        proc.kill('SIGKILL');
+                        activeUnknownSessions.delete(dir);
+                    }
+                }
+            });
+        });
+    });
+}, 5 * 60 * 1000);
+
+const MAX_RATE = 100; // max requests per minute
+const numCPUs = 1; // Temporarily disabling clustering to ensure session and cache consistency when HLS files are local
 
 // RECAPTCHA V3 CONFIGURATION
 // Ideally this should be an environment variable
@@ -44,6 +80,54 @@ async function verifyRecaptcha(token, ip) {
             console.error('reCAPTCHA request error:', e);
             resolve(false);
         });
+    });
+}
+
+const rateLimits = new Map(); // ip -> { count, startTime }
+
+function ensureHlsSession(targetUrl, fileHash) {
+    const sessionDir = path.join(hlsOutputDir, fileHash);
+    const playlistPath = path.join(sessionDir, 'master.m3u8');
+
+    // If session active or playlist exists and is recent, assume good
+    if (activeUnknownSessions.has(fileHash)) return;
+
+    // Check if playlist exists (resume session)
+    if (fs.existsSync(playlistPath)) {
+        return;
+    }
+
+    if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+    }
+
+    console.log(`[HLS] Starting session for ${fileHash}`);
+
+    const encodedTargetUrl = new URL(targetUrl).href;
+
+    const ffmpegArgs = [
+        '-headers', 'Cookie: justiceGovAgeVerified=true\r\n',
+        '-user_agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '-i', encodedTargetUrl,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-f', 'hls',
+        '-hls_time', '4',
+        '-hls_list_size', '0',
+        '-hls_segment_filename', path.join(sessionDir, 'segment_%03d.ts'),
+        path.join(sessionDir, 'master.m3u8')
+    ];
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+    activeUnknownSessions.set(fileHash, ffmpeg);
+
+    ffmpeg.stderr.on('data', d => {
+        // console.log(`[FFmpeg HLS] ${d}`);
+    });
+
+    ffmpeg.on('close', (code) => {
+        console.log(`[HLS] Session ${fileHash} finished with code ${code}`);
+        activeUnknownSessions.delete(fileHash);
     });
 }
 
@@ -103,86 +187,121 @@ function serveRequest(req, res) {
         // We process everything through FFmpeg to ensure fast start (fragmented MP4)
         console.log(`[Stream] Processing ${fileExt}: ${targetUrl}`);
 
-        res.writeHead(200, {
-            'Content-Type': 'video/mp4',
-            'Access-Control-Allow-Origin': '*',
-        });
+        // Check for download mode
+        const mode = parsedUrl.query.mode;
 
-        // Base args
-        let ffmpegArgs = [
-            '-i', targetUrl,
-            '-movflags', 'frag_keyframe+empty_moov',
-            '-f', 'mp4'
-        ];
+        if (mode === 'download') {
+            console.log(`[Proxy] Downloading: ${targetUrl}`);
+            const client = targetUrl.startsWith('https') ? https : http;
 
-        // Optimization: Remux native MP4s (copy) for speed, Transcode others
-        if (fileExt === '.mp4' || fileExt === '.m4a') {
-            ffmpegArgs.push('-c', 'copy');
-        } else {
-            ffmpegArgs.push(
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-c:a', 'aac'
-            );
+            // Inject magic headers to bypass age verification
+            const options = {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Cookie': 'justiceGovAgeVerified=true'
+                }
+            };
+
+            client.get(targetUrl, options, (proxyRes) => {
+                const headers = {
+                    'Content-Type': proxyRes.headers['content-type'],
+                    'Content-Length': proxyRes.headers['content-length'],
+                    'Content-Disposition': `attachment; filename="${path.basename(new URL(targetUrl).pathname)}"`,
+                    'Access-Control-Allow-Origin': '*'
+                };
+                res.writeHead(proxyRes.statusCode, headers);
+                proxyRes.pipe(res);
+            }).on('error', (err) => {
+                console.error('[Proxy Error]', err);
+                res.writeHead(500);
+                res.end('Proxy error');
+            });
+            return;
         }
 
-        ffmpegArgs.push('-'); // Output to stdout
+        // HLS: Return M3U8 Playlist (Default behavior)
+        // Redirect legacy proxy to HLS stream
+        const fileHash = crypto.createHash('md5').update(targetUrl).digest('hex');
+        const streamPath = `/stream/${fileHash}/master.m3u8`;
 
-        const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+        ensureHlsSession(targetUrl, fileHash);
 
-        ffmpeg.stdout.pipe(res);
-
-        ffmpeg.stderr.on('data', (data) => {
-            // console.log(`FFmpeg Log: ${data}`); // Verbose logging
-        });
-
-        ffmpeg.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`FFmpeg finished with code ${code}`);
-            }
-            res.end();
-        });
-
-        // Clean up if client disconnects
-        req.on('close', () => {
-            // Silence kill if already closed
-            try { ffmpeg.kill(); } catch (e) { }
-        });
-
-        return;
-
-
-        const options = {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://www.justice.gov/epstein',
-                'Cookie': 'justiceGovAgeVerified=true'
-            }
-        };
-
-        https.get(targetUrl, options, (proxyRes) => {
-            if (proxyRes.statusCode === 404) {
-                res.writeHead(404, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
-                res.end('Video not found on source server');
-                return;
-            }
-
-            const headers = { ...proxyRes.headers };
-            headers['Access-Control-Allow-Origin'] = '*';
-            headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS';
-            headers['Access-Control-Allow-Headers'] = '*';
-            delete headers['content-security-policy'];
-            delete headers['x-frame-options'];
-
-            res.writeHead(proxyRes.statusCode, headers);
-            proxyRes.pipe(res);
-        }).on('error', (err) => {
-            console.error('Proxy Error:', err.message);
-            res.statusCode = 500;
-            res.end('Proxy error: ' + err.message);
-        });
+        res.writeHead(302, { 'Location': streamPath });
+        res.end();
         return;
     }
+
+    // HLS: Serve Segments and Playlist
+    if (parsedUrl.pathname.startsWith('/stream/')) {
+        const parts = parsedUrl.pathname.split('/');
+        // /stream/<hash>/<file>
+        const fileHash = parts[2];
+        const fileName = parts[3];
+
+        if (!fileHash || !fileName) {
+            res.writeHead(400);
+            res.end('Invalid stream request');
+            return;
+        }
+
+        const filePath = path.join(hlsOutputDir, fileHash, fileName);
+
+        // Wait loop for playlist (if generating)
+        if ((fileName === 'master.m3u8' || fileName === 'master.m3u') && !fs.existsSync(filePath) && !fs.existsSync(filePath + '8')) {
+            let checks = 0;
+            const checkInterval = setInterval(() => {
+                checks++;
+                // Check for both .m3u8 (direct) and .m3u->.m3u8 (alias)
+                if (fs.existsSync(filePath) || (fileName.endsWith('.m3u') && fs.existsSync(filePath + '8'))) {
+                    clearInterval(checkInterval);
+                    const actualPath = fs.existsSync(filePath) ? filePath : filePath + '8';
+                    serveFile(res, actualPath, 'application/vnd.apple.mpegurl');
+                } else if (checks > 40) { // Timeout 4s
+                    clearInterval(checkInterval);
+                    res.writeHead(404);
+                    res.end('Stream generation timeout');
+                }
+            }, 100);
+            return;
+        }
+
+        if (fs.existsSync(filePath)) {
+            const contentType = (fileName.endsWith('.m3u8') || fileName.endsWith('.m3u'))
+                ? 'application/vnd.apple.mpegurl'
+                : 'video/MP2T';
+
+            serveFile(res, filePath, contentType);
+        } else if (fileName.endsWith('.m3u')) {
+            const aliasPath = filePath + '8';
+            if (fs.existsSync(aliasPath)) {
+                serveFile(res, aliasPath, 'application/vnd.apple.mpegurl');
+            } else {
+                res.writeHead(404);
+                res.end('Not found (alias failed)');
+            }
+        } else {
+            res.writeHead(404);
+            res.end('Not found');
+        }
+        return;
+    }
+
+    // Continue to other handlers
+
+    // API: Suggest Tag
+    if (pathname === '/api/suggest-tag' && req.method === 'POST') {
+        // Logic is below
+    } else if (pathname.startsWith('/api') || pathname.startsWith('/proxy') || pathname.startsWith('/stream')) {
+        // If it fell through here, it's 404
+        if (!res.writableEnded) {
+            res.writeHead(404);
+            res.end('Not Found');
+        }
+        return;
+    }
+
+    // STATIC FILE SERVER (Fallback)
+    // ...
 
     // API: Suggest Tag
     if (pathname === '/api/suggest-tag' && req.method === 'POST') {
@@ -574,7 +693,26 @@ if (cluster.isMaster) {
     });
 } else {
     const server = http.createServer(serveRequest);
+
     server.listen(PORT, () => {
-        console.log(`Worker ${process.pid} started on port ${PORT}`);
+        console.log(`Server running on http://localhost:${PORT}`);
+        console.log(`Admin Login at http://localhost:${PORT}/admin.html`);
+        console.log(`HLS Output Dir: ${hlsOutputDir}`);
+    });
+}
+
+function serveFile(res, filePath, contentType) {
+    fs.stat(filePath, (err, stats) => {
+        if (err) {
+            res.writeHead(404);
+            res.end('File not found');
+            return;
+        }
+        res.writeHead(200, {
+            'Content-Type': contentType,
+            'Content-Length': stats.size,
+            'Access-Control-Allow-Origin': '*'
+        });
+        fs.createReadStream(filePath).pipe(res);
     });
 }
