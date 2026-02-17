@@ -367,13 +367,6 @@ function serveRequest(req, res) {
     // API: Suggest Tag
     if (pathname === '/api/suggest-tag' && req.method === 'POST') {
         // Logic is below
-    } else if (pathname.startsWith('/api') || pathname.startsWith('/proxy') || pathname.startsWith('/stream')) {
-        // If it fell through here, it's 404
-        if (!res.writableEnded) {
-            res.writeHead(404);
-            res.end('Not Found');
-        }
-        return;
     }
 
     // STATIC FILE SERVER (Fallback)
@@ -611,6 +604,15 @@ function serveRequest(req, res) {
                 res.end(JSON.stringify({ error: 'Invalid request' }));
             }
         });
+        return;
+    }
+
+    if (pathname.startsWith('/api') || pathname.startsWith('/proxy') || pathname.startsWith('/stream')) {
+        // If it fell through here, it's 404
+        if (!res.writableEnded) {
+            res.writeHead(404);
+            res.end('Not Found');
+        }
         return;
     }
 
