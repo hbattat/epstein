@@ -625,7 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const shareUrl = `${baseUrl}?v=${encodeURIComponent(videoId)}`;
 
             const shareData = {
-                title: 'JEVV - Jeffrey Epstein Video Vault',
+                title: 'J.E.V.V. - Jeffrey Epstein Video Vault',
                 text: `Watch this recording: ${videoId}`,
                 url: shareUrl
             };

@@ -110,6 +110,7 @@ select:focus {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--hacker-green);
 }
+
 /* Tag Chips */
 .tag-chip {
     background-color: #050505;
@@ -126,4 +127,13 @@ select:focus {
 .group:hover .tag-chip {
     border-color: var(--hacker-green);
     box-shadow: 0 0 5px var(--hacker-green-dim);
+}
+
+.logo-glow {
+    filter: drop-shadow(0 0 5px var(--hacker-green-dim));
+    transition: filter 0.3s ease;
+}
+
+.logo-glow:hover {
+    filter: drop-shadow(0 0 15px var(--hacker-green));
 }
